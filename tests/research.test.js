@@ -6,9 +6,14 @@ import * as research from '../server/research.js';
 
 const {
   buildResearchFeatures,
+  buildConferenceFeatures,
   researchFeatureValue,
   researchTopicName,
   researchClueText,
+  conferenceFactKey,
+  dedupeConferenceFeatures,
+  conferenceXSlotCount,
+  conferenceSlotDistance,
 } = research;
 
 const ORDINARY_TYPES = [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET];
@@ -622,6 +627,44 @@ const CONFERENCE_TEXT_CASES = [
   ['within', 'some', 'X行星位于至少一个气体云的 5 个扇区以内。', '至少有一个气体云位于X行星的 5 个扇区以内。'],
   ['within', 'all', 'X行星位于至少一个气体云的 5 个扇区以内。', '每个气体云都位于X行星的 5 个扇区以内。'],
 ];
+
+test('conference facts collapse reverse wording but keep every-ordinary claims', () => {
+  const features = buildConferenceFeatures(12);
+  const pick = (objectType, neighborType, relation, quantifier, range = 0) => features.find((feature) => (
+    feature.objectType === objectType
+    && feature.neighborType === neighborType
+    && feature.relation === relation
+    && feature.quantifier === quantifier
+    && (feature.range || 0) === range
+  ));
+  const xSome = pick(Obj.PLANET_X, Obj.GAS_CLOUD, 'adjacent', 'some');
+  const xAll = pick(Obj.PLANET_X, Obj.GAS_CLOUD, 'adjacent', 'all');
+  const gasSome = pick(Obj.GAS_CLOUD, Obj.PLANET_X, 'adjacent', 'some');
+  const gasAll = pick(Obj.GAS_CLOUD, Obj.PLANET_X, 'adjacent', 'all');
+  const gasNone = pick(Obj.GAS_CLOUD, Obj.PLANET_X, 'adjacent', 'none');
+  const xNone = pick(Obj.PLANET_X, Obj.GAS_CLOUD, 'adjacent', 'none');
+  assert.equal(conferenceFactKey(xSome), conferenceFactKey(xAll));
+  assert.equal(conferenceFactKey(xSome), conferenceFactKey(gasSome));
+  assert.notEqual(conferenceFactKey(xSome), conferenceFactKey(gasAll));
+  assert.equal(conferenceFactKey(xNone), conferenceFactKey(gasNone));
+  const kept = dedupeConferenceFeatures([gasSome, xAll, xSome, gasAll, gasNone, xNone]);
+  assert.deepEqual(kept, [xAll, gasAll, xNone]);
+});
+
+test('a dwarf conference within two sectors leaves four X slots', () => {
+  const feature = buildConferenceFeatures(12).find((item) => (
+    item.objectType === Obj.PLANET_X
+    && item.neighborType === Obj.DWARF_PLANET
+    && item.relation === 'within'
+    && item.quantifier === 'some'
+    && item.range === 2
+  ));
+  const masks = { [Obj.DWARF_PLANET]: 1 };
+  assert.equal(conferenceXSlotCount(feature, masks, 12), 4);
+  assert.equal(conferenceSlotDistance(4), 0);
+  assert.equal(conferenceSlotDistance(2), 1);
+  assert.equal(conferenceSlotDistance(8), 3);
+});
 
 for (const [relation, quantifier, expectedForward, expectedReverse] of CONFERENCE_TEXT_CASES) {
   test(`${relation}/${quantifier} conference wording treats X as a singleton in either direction`, () => {

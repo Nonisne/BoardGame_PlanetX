@@ -1,5 +1,5 @@
 import { Obj } from '../public/src/types.js';
-import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchClueText } from './research.js';
+import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, conferenceOrdinaryType, dedupeConferenceFeatures, conferenceXSlotCount, conferenceSlotDistance } from './research.js';
 
 const SECTOR_COUNT = 18;
 // Expert band clues stay inside 6–8 sectors. Shorter than 6 pins a group of four
@@ -213,34 +213,50 @@ function featuresWithCounterexamples() {
   return cachedFeatures;
 }
 
+function conferencePairRank(left, right, answer) {
+  return {
+    different: left.ordinary === right.ordinary ? 0 : 1,
+    incomplete: Number(left.matchingPeers !== answer) + Number(right.matchingPeers !== answer),
+    distance: conferenceSlotDistance(left.slots) + conferenceSlotDistance(right.slots),
+  };
+}
+
+function compareConferenceRank(next, current) {
+  if (next.different !== current.different) return next.different - current.different;
+  if (next.incomplete !== current.incomplete) return next.incomplete - current.incomplete;
+  return current.distance - next.distance;
+}
+
 function certifiedConferences(masks, features, selectIndex) {
   const peers = completeObservationPeers(masks);
   const answer = 1 << peers.findIndex((peer) => peer[Obj.PLANET_X] === masks[Obj.PLANET_X]);
-  const seenText = new Set();
   const options = [];
-  for (const feature of features) {
+  for (const feature of dedupeConferenceFeatures(features)) {
     let matchingPeers = 0;
     for (const [index, peer] of peers.entries()) {
       if (researchFeatureValue(feature, peer, SECTOR_COUNT) === 1) matchingPeers |= 1 << index;
     }
     if (!(matchingPeers & answer)) continue;
-    const text = researchClueText(feature);
-    if (seenText.has(text)) continue;
-    seenText.add(text);
-    options.push({ feature, matchingPeers });
+    options.push({
+      feature,
+      matchingPeers,
+      ordinary: conferenceOrdinaryType(feature),
+      slots: conferenceXSlotCount(feature, masks, SECTOR_COUNT),
+    });
   }
-  let bestScore = -1;
+  let bestRank = null;
   let pairs = [];
   for (let first = 0; first < options.length; first += 1) {
     for (let second = first + 1; second < options.length; second += 1) {
       const left = options[first];
       const right = options[second];
       if ((left.matchingPeers & right.matchingPeers) !== answer) continue;
-      const score = Number(left.matchingPeers !== answer) + Number(right.matchingPeers !== answer);
-      if (score > bestScore) {
-        bestScore = score;
+      const rank = conferencePairRank(left, right, answer);
+      const comparison = bestRank ? compareConferenceRank(rank, bestRank) : 1;
+      if (comparison > 0) {
+        bestRank = rank;
         pairs = [[left.feature, right.feature]];
-      } else if (score === bestScore) pairs.push([left.feature, right.feature]);
+      } else if (comparison === 0) pairs.push([left.feature, right.feature]);
     }
   }
   if (!pairs.length) return null;
