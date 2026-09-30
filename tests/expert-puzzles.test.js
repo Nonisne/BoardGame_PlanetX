@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { Obj, LABEL, apparentType } from '../public/src/types.js';
 import { createPuzzle, validateBoard, initialCluesFor, matchingClues, countSolutions } from '../server/puzzles.js';
 import { expertLegalBoardCount } from '../server/expert-puzzles.js';
+import { conferenceFactKey, conferenceOrdinaryType, conferenceXSlotCount } from '../server/research.js';
 
 const SECTOR_COUNT = 18;
 const ORDINARY_TYPES = [Obj.ASTEROID, Obj.COMET, Obj.GAS_CLOUD, Obj.DWARF_PLANET];
@@ -290,6 +291,25 @@ test('cold expert generation exposes only the public subjects and hidden clue st
   for (const title of Object.values(puzzle.conferenceNames)) assert.match(title, /^X行星和(小行星|彗星|气体云|矮行星)$/u);
   assert.deepEqual(JSON.parse(JSON.stringify(puzzle)), puzzle);
   context.diagnostic(`cold expert generation ${elapsed.toFixed(2)}ms`);
+});
+
+test('expert conferences state two different facts about different objects when a certifying pair exists', () => {
+  let differentTypes = 0;
+  for (let seed = 0; seed < 24; seed += 1) {
+    const puzzle = createPuzzle({ modeId: 'expert', random: seededRandom(seed * 17 + 3) });
+    const features = Object.values(puzzle.conferences).map(readClue);
+    assert.notEqual(conferenceFactKey(features[0]), conferenceFactKey(features[1]));
+    const masks = Object.fromEntries(ORDINARY_TYPES.map((type) => [type, 0]));
+    puzzle.objects.forEach((type, sector) => {
+      if (Object.hasOwn(masks, type)) masks[type] |= 1 << sector;
+    });
+    if (conferenceOrdinaryType(features[0]) !== conferenceOrdinaryType(features[1])) differentTypes += 1;
+    for (const feature of features) {
+      const slots = conferenceXSlotCount(feature, masks, SECTOR_COUNT);
+      assert.ok(slots > 0 && slots < SECTOR_COUNT);
+    }
+  }
+  assert.ok(differentTypes >= 20, `${differentTypes} of 24 expert tables used two object types`);
 });
 
 test('expert generation certifies every complete-observation peer with two independently interpreted predicates', (context) => {

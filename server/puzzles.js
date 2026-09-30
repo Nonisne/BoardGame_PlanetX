@@ -1,5 +1,5 @@
 import { Obj, INITIAL_CLUE_TYPES, apparentType } from '../public/src/types.js';
-import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchTopicName, conferenceTopicName, researchClueText } from './research.js';
+import { buildResearchFeatures, buildConferenceFeatures, researchFeatureValue, researchTopicName, conferenceTopicName, researchClueText, dedupeConferenceFeatures, conferenceXSlotCount, conferenceSlotDistance } from './research.js';
 import { EXPERT_COMET_SECTORS, validateExpertBoard, createExpertDefinition, countExpertSolutions } from './expert-puzzles.js';
 
 const SECTOR_COUNT = 12;
@@ -162,10 +162,23 @@ function chooseResearch(features, indices, answerIndex, desiredCount, used, rand
   return selected;
 }
 
+function selectBalancedConference(options, masks, random) {
+  let bestDistance = Infinity;
+  let choices = [];
+  for (const feature of dedupeConferenceFeatures(options)) {
+    const distance = conferenceSlotDistance(conferenceXSlotCount(feature, masks, SECTOR_COUNT));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      choices = [feature];
+    } else if (distance === bestDistance) choices.push(feature);
+  }
+  return { feature: choices[randomIndex(choices.length, random)], value: 1 };
+}
+
 function createStandardPuzzle(random) {
   const catalogue = engine();
   const { answerIndex, conferenceOptions } = catalogue.eligible[randomIndex(catalogue.eligible.length, random)];
-  const conference = { feature: conferenceOptions[randomIndex(conferenceOptions.length, random)], value: 1 };
+  const conference = selectBalancedConference(conferenceOptions, catalogue.candidates[answerIndex].masks, random);
   let remaining = matchingIndices(catalogue.indices, conference);
   const used = new Set();
   const singleObject = (feature) => feature.kind === 'band' || feature.objectType === feature.neighborType;

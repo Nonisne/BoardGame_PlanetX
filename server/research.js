@@ -115,6 +115,59 @@ export function conferenceTopicName(feature) {
   return `${LABEL[Obj.PLANET_X]}和${researchTopicName(feature)}`;
 }
 
+/** The ordinary type a conference sentence relates to Planet X. */
+export function conferenceOrdinaryType(feature) {
+  return feature.objectType === Obj.PLANET_X ? feature.neighborType : feature.objectType;
+}
+
+/**
+ * Wordings that state the same X fact.
+ * One Planet X makes "every X ..." the same as "at least one X ...".
+ * "At least one ordinary object meets X" is that same fact said backwards.
+ * "Every ordinary object meets X" is stronger and stays distinct.
+ */
+export function conferenceFactKey(feature) {
+  const ordinary = conferenceOrdinaryType(feature);
+  const everyOrdinary = feature.objectType !== Obj.PLANET_X && feature.quantifier === 'all';
+  const quantifier = everyOrdinary ? 'all' : (feature.quantifier === 'none' ? 'none' : 'some');
+  const range = feature.relation === 'within' ? feature.range : 0;
+  return `${everyOrdinary ? 'every' : 'x'}|${ordinary}|${feature.relation}|${range}|${quantifier}`;
+}
+
+/** Keep one wording per fact. Prefer the sentence that has Planet X as the subject. */
+export function dedupeConferenceFeatures(features) {
+  const byKey = new Map();
+  for (const feature of features) {
+    const key = conferenceFactKey(feature);
+    const current = byKey.get(key);
+    if (!current || (feature.objectType === Obj.PLANET_X && current.objectType !== Obj.PLANET_X)) byKey.set(key, feature);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Sectors where X can still sit once every copy of the conference's ordinary
+ * type is already placed. The occupied sectors of that type are not candidates.
+ */
+export function conferenceXSlotCount(feature, masks, sectorCount) {
+  const ordinary = conferenceOrdinaryType(feature);
+  const known = masks[ordinary] ?? 0;
+  let open = 0;
+  for (let sector = 0; sector < sectorCount; sector += 1) {
+    if (known & (1 << sector)) continue;
+    const probe = { [ordinary]: known, [Obj.PLANET_X]: 1 << sector };
+    if (researchFeatureValue(feature, probe, sectorCount) === 1) open += 1;
+  }
+  return open;
+}
+
+/** How far a slot count sits outside the 3–5 band that keeps a conference useful but not decisive. */
+export function conferenceSlotDistance(count) {
+  if (count < 3) return 3 - count;
+  if (count > 5) return count - 5;
+  return 0;
+}
+
 export function researchClueText(feature) {
   const object = LABEL[feature.objectType];
   if (feature.kind === 'band') {
